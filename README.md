@@ -4,17 +4,41 @@
 
 UFACTORY robot arm integration with the LeRobot framework for robot learning, data collection, and policy deployment.
 
-Reference project: [ufactory_teleop](https://github.com/xArm-Developer/ufactory_teleop)
+## Training & Inference Results
+
+[Test datasets](https://drive.google.com/drive/folders/1Ms25rd2YYGdh3tHPEsTTMU-m1fE7uNYY) used during development, **for reference only, do NOT reuse**. As the robot arm and camera positions during development differ from user setups.
+
+<table>
+<tr>
+  <td width="50%">
+    <a href="https://www.youtube.com/watch?v=wTiWLiHciT8" target="_blank">
+      <img src="https://img.youtube.com/vi/wTiWLiHciT8/maxresdefault.jpg" width="100%">
+    </a>
+  </td>
+  <td width="50%">
+    <a href="https://www.youtube.com/watch?v=IiyvewZh5OY" target="_blank">
+      <img src="https://img.youtube.com/vi/IiyvewZh5OY/maxresdefault.jpg" width="100%">
+    </a>
+  </td>
+</tr>
+<tr>
+  <td width="50%">
+    <a href="https://youtu.be/wBwZH6POk38" target="_blank">
+      <img src="https://img.youtube.com/vi/wBwZH6POk38/maxresdefault.jpg" width="100%">
+    </a>
+  </td>
+</tr>
+</table>
 
 ## Features
 
-- xArm robot control (xArm series)
-- Multiple teleop modes: GELLO / Pika / UMI / SpaceMouse
-- Multi-camera data collection (RealSense / UMI camera)
-- Dataset recording & management (LeRobot-compatible)
-- Imitation learning training (ACT / Diffusion Policy / etc.)
-- Policy evaluation & real-time inference
-- Mock mode (no physical robot needed)
+- 🤖 UFACTORY robot control ([xArm series](https://www.ufactory.cc/))
+- 🎮 Multiple teleop modes: GELLO / [Pika](https://global.agilex.ai/products/pika) / [UMI](https://lumosumi.lumosbot.tech/pro/) / [SpaceMouse](https://3dconnexion.com/sg/product/spacemouse-wireless/)
+- 📷 Multi-camera data collection ([RealSense](https://www.realsenseai.com/products/depth-camera-d435i/) / UMI camera)
+- 📊 Dataset recording & management (LeRobot-compatible)
+- 🧠 Imitation learning training (ACT / Diffusion Policy / etc.)
+- 🚀 Policy evaluation & real-time inference
+- 🔧 Mock mode (teleop device only, no physical robot needed)
 
 ## Requirements
 
@@ -48,6 +72,8 @@ Peripheral dependencies are available as optional extras via `[module]` install.
 #### GELLO Teleop
 
 Dynamixel-based leader arm, joint-space control.
+* Once data collection starts, the **relative position** between the robot arm and camera (D435 / D435i) **must remain unchanged**.
+* The camera position during inference must match the collection setup. If the robot arm or camera changes, previously collected data becomes invalid.
 
 ```bash
 # 1. Install GELLO module
@@ -59,7 +85,9 @@ sudo usermod -aG dialout $USER
 
 #### Pika Teleop
 
-Pika Sense handheld + Vive Tracker, task-space control.
+Pika Sense handheld + Vive Tracker, Cartesian-space control.
+* No requirement for the relative position of the two base stations and the robot arm. Only need to ensure the Pika Sense is within base station range during collection, but **base stations must be recalibrated after moving**.
+* Base station positions for collection and inference do not need to be the same.
 
 ```bash
 # 1. Install peripheral deps (skip transitive deps)
@@ -122,8 +150,12 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 Test teleop-to-robot control loop without recording.
 
 ```bash
+# Generic usage
 uf-robot-teleop -c path/to/config.yaml
 uf-robot-teleop -c path/to/config.yaml -f 60  # specify frequency
+
+# Example: xArm6 + UMI teleop
+uf-robot-teleop -c config/umi/xarm6_umi_record_config.yaml
 ```
 
 ### 2. Data Collection
@@ -131,8 +163,12 @@ uf-robot-teleop -c path/to/config.yaml -f 60  # specify frequency
 Record datasets via teleop.
 
 ```bash
+# Generic usage
 uf-lerobot-record -c path/to/record_config.yaml
 uf-lerobot-record -c path/to/config.yaml --resume  # resume recording
+
+# Example: xArm6 + UMI data collection
+uf-lerobot-record -c config/umi/xarm6_umi_record_config.yaml
 ```
 
 ### 3. Policy Training
@@ -140,18 +176,47 @@ uf-lerobot-record -c path/to/config.yaml --resume  # resume recording
 Train imitation learning policies on collected data.
 
 ```bash
+# Generic usage
 lerobot-train --policy act --dataset your_dataset_name
+
+# Example: train ACT on xArm6 UMI dataset
+lerobot-train --policy act --dataset ufactory/xarm6_umi_datas
 ```
 
-### 4. Policy Evaluation
-
-Evaluate trained policies.
+Important parameters:
 
 ```bash
-uf-lerobot-eval -c path/to/eval_config.yaml
+# Note: repo_id is the same as in the record config
+# Policy type: ACT, training steps: 800k
+# Checkpoints saved every 20k steps, output to lerobot_datas/train (sibling of lerobot directory)
+lerobot-train \
+  --dataset.root=../../../../lerobot_datas/record/ufactory/xarm6_umi_datas \
+  --dataset.repo_id=ufactory/xarm6_umi_datas \
+  --policy.type=act \
+  --policy.device=cuda \
+  --policy.repo_id=ufactory/xarm6_umi_datas \
+  --output_dir=../../../../lerobot_datas/train/xarm6_umi_datas \
+  --job_name=xarm6_umi_datas \
+  --steps=800000 \
+  --batch_size=8 \
+  --save_freq=20000
 ```
 
-### 5. Camera Viewer
+### 4. Inference & Evaluation
+
+Run inference with a trained policy.
+
+```bash
+# Generic usage
+uf-lerobot-eval -c path/to/config.yaml --policy.path your_train_path
+
+# Example: run inference with trained ACT policy
+uf-lerobot-eval -c config/umi/xarm6_umi_record_config.yaml --policy.path ../../../../lerobot_datas/train/xarm6_umi_datas/checkpoints/last/pretrained_model/
+```
+
+## Tools
+
+### 1. Camera Viewer
 
 View and stitch multiple camera feeds.
 
@@ -163,18 +228,45 @@ uf-camera-view -T xvisio -W 640 -H 1920 -F NV12  # specify format
 uf-camera-view -T other                     # view other camera types
 ```
 
-### Mock Mode (no physical robot)
+### 2. LeRobot Dataset Tools
 
-```yaml
-type: "uf::mock_robot"           # single arm simulation
-type: "uf::multiple_mock_robot"  # dual arm simulation
+LeRobot provides dataset utilities for inspecting, editing and managing collected datasets.
+
+#### View an episode:
+e.g. view episode index 17:
+```bash
+lerobot-dataset-viz \
+  --root=../../../../lerobot_datas/record/ufactory/xarm7_record_datas \
+  --repo-id ufactory/xarm7_record_datas \
+  --display-compressed-images true \
+  --episode-index 17
+```
+
+#### Delete specific episodes:
+e.g. delete episodes 18 and 19:
+```bash
+lerobot-edit-dataset \
+  --root=../../../../lerobot_datas/record/ufactory/xarm7_record_datas \
+  --repo_id ufactory/xarm7_record_datas \
+  --new_repo_id ../xarm7_record_datas_new \
+  --operation.type delete_episodes \
+  --operation.episode_indices "[18, 19]"
+```
+
+#### Merge datasets:
+```bash
+lerobot-edit-dataset \
+  --root=../../../../lerobot_datas/record \
+  --repo_id ufactory/xarm7_record_datas_merge_1_2 \
+  --operation.type merge \
+  --operation.repo_ids "['ufactory/xarm7_record_datas_1', 'ufactory/xarm7_record_datas_2']"
 ```
 
 ## Teleop Comparison
 
 | Feature | GELLO | Pika | UMI | SpaceMouse |
 |---------|-------|------|-----|------------|
-| Control space | Joint space | Task space | Task space | Task space |
+| Control space | Joint space | Cartesian space | Cartesian space | Cartesian space |
 | Tracking | Dynamixel servos | Vive Tracker | UMI SLAM / Vive | 3D mouse |
 | Dual-arm | ❌ | ❌ | ✅ | ❌ |
 | System dep | dialout group | — | XVSDK deb | — |
@@ -188,7 +280,6 @@ ufactory_lerobot/
 │   │   ├── robots/                 # Robot control
 │   │   │   ├── uf_robot/           #   xArm physical robot
 │   │   │   ├── uf_mock_robot/      #   Mock robot simulator
-│   │   │   └── utils.py            #   make_robot_from_config patch
 │   │   ├── teleoperators/          # Teleop drivers
 │   │   │   ├── gello_teleop/       #   GELLO (Dynamixel leader)
 │   │   │   ├── pika_teleop/        #   Pika Sense (handheld + Vive)
@@ -203,19 +294,26 @@ ufactory_lerobot/
 │   │   │   ├── uf_robot_teleop.py     # Teleop testing
 │   │   │   ├── uf_lerobot_record.py   # Data recording
 │   │   │   ├── uf_lerobot_eval.py     # Policy evaluation
-│   │   │   ├── uf_camera_view.py      # camera viewer tool
+│   │   │   ├── uf_camera_view.py      # Camera viewer tool
 │   │   │   └── vive_calibrate.py      # Vive Tracker calibration
 │   │   └── utils/                  # Utilities
-│   ├── rules/                      # udev device rules
-│   └── xvsdk/                      # XVSDK system dependency
 ├── config/                         # YAML config files
 │   ├── gello/
 │   ├── pika/
 │   ├── umi/
 │   └── spacemouse/
+├── rules/                          # udev device rules
+├── xvsdk/                          # XVSDK system dependency
 ├── pyproject.toml
-└── LICENSE
+└── README.md
 ```
+
+## Important Notes
+
+Users are expected to thoroughly study the codebase and configuration parameters.  
+The provided configurations are **not guaranteed to work for all scenarios** and must be adjusted based on actual hardware setups and task requirements.
+
+In particular, for **diffusion policies**, the default parameters in LeRobot are primarily designed for simulation and **are not optimized for real-world robots**.
 
 ## License
 
